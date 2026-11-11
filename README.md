@@ -73,6 +73,35 @@ sky), auto-locks camera azimuth, and validates against it. Outputs land
 in out/: an overlay video, sample frames, a JSONL flight log, and
 summary.json (validated: true/false + stats).
 
+## Volume prediction (v0 — funnel physics)
+
+`python -m overhead.volume --nowcast` predicts overflights for the next
+hour from live kinematics: each aircraft's position + velocity vector is
+dead-reckoned straight-line; time/distance of closest approach to the
+camera yields an ETA table. Weather context comes from Open-Meteo (keyless)
+and the DFW METAR (wind -> crude north/south flow annotation, which shifts
+which corridors cross a given neighborhood).
+
+Live sample (2026-11-11 22:50 UTC, 105 aircraft in range): 5 predicted
+overflights within 15 min, 7 within 30, 9 within 60 — callsigns, ETAs,
+miss distances.
+
+Closed-loop verification (7.5 min later): 0/2 due predictions overhead at
+sample time — one left the feed (coverage gap), one turned to land
+(terminal-area maneuvering defeats straight-line kinematics), and the
+verifier sampled after ETA rather than at it. Honest v0 limits, known and
+documented:
+
+- terminal-area turns break straight-line dead reckoning (biggest error source)
+- single-sample verification misses flyovers between samples
+- coverage gaps make "left feed" ambiguous
+
+Fix ladder (in order): ETA-windowed verification from the continuous
+logger; turn detection (track-rate gate) to mark predictions low-confidence
+near the airport; then, once weeks of `--log` history exist, a learned
+model on [hour, day-of-week, weather, live funnel state] — the log schema
+already captures all of it.
+
 ## Real deployment
 
 Swap the synthetic source for an RTSP camera, then calibrate once:
