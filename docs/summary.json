@@ -1,0 +1,13 @@
+{
+  "truth": "SWA1665",
+  "frames": 3106,
+  "detected": 2924,
+  "confirmed_matches": 2919,
+  "correct_callsign_frames": 2919,
+  "first_match_s": 1.82,
+  "correlated_callsigns": [
+    "SWA1665"
+  ],
+  "validated": true,
+  "match_rate": 0.94
+}
