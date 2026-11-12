@@ -4,20 +4,21 @@ sys.path.insert(0, ".")
 from overhead.geo import (haversine_m, bearing_deg, elevation_deg,
                           angles_to_pixel, pixel_to_angles)
 
-# Reference: Euless TX camera vs DFW airfield reference point (~32.897, -97.038)
-CAM = (32.8373, -97.0827, 180.0)   # lat, lon, alt_m (approx, configurable)
+# Arbitrary DFW-area reference points (math verification only — not a
+# real camera location; keep it that way for privacy).
+CAM = (32.8000, -97.1500, 180.0)   # lat, lon, alt_m
 DFW = (32.8970, -97.0380)
 
 def test_distance_bearing():
     d = haversine_m(CAM[0], CAM[1], DFW[0], DFW[1])
     b = bearing_deg(CAM[0], CAM[1], DFW[0], DFW[1])
-    assert 7000 < d < 9000, d      # ~8 km ENE
-    assert 25 < b < 40, b          # NE-ish
-    print(f"OK euless->dfw  dist={d/1000:.2f}km bearing={b:.1f}")
+    assert 14000 < d < 16000, d     # ~15 km
+    assert 40 < b < 48, b           # NE
+    print(f"OK ref->dfw  dist={d/1000:.2f}km bearing={b:.1f}")
 
 def test_elevation():
-    # aircraft 5 km away at 3,000 ft (~914 m): atan2(914-180, 5000) ~ 8.2 deg
-    ac = (32.8800, -97.0400, 914.0)
+    # aircraft 5 km due north at 3,000 ft (~914 m): atan2(914-180, 5000) ~ 8.3 deg
+    ac = (32.8450, -97.1500, 914.0)
     el = elevation_deg(CAM[0], CAM[1], CAM[2], *ac)
     assert 6 < el < 10, el
     print(f"OK elevation 5km/3000ft -> {el:.1f} deg")

@@ -21,11 +21,11 @@ import time
 from pathlib import Path
 
 from .adsb import AdsbPoller
+from .config import CAM
 from .geo import bearing_deg, haversine_m, project
 from .weather import open_meteo, dfw_metar, flow_heuristic
 
-CAM = {"lat": 32.8373, "lon": -97.0827, "alt_m": 180.0}
-DFW = (32.8970, -97.0380)          # airport reference point
+DFW = (32.8970, -97.0380)          # airport reference point (public)
 OVERFLIGHT_RADIUS_M = 4000.0       # "overhead" = within 4 km
 MAX_HORIZON_S = 3600.0             # predict out to 60 minutes
 DATA = Path(__file__).resolve().parent.parent / "data"

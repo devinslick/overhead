@@ -17,6 +17,7 @@ import cv2
 import zmq
 
 from .adsb import AdsbPoller, dead_reckon
+from .config import CAM
 from .correlator import Correlator
 from .geo import project
 from .sim import SyntheticReplay
@@ -24,8 +25,7 @@ from .tracker import IoUTracker
 
 from ultralytics import YOLO
 
-CAM = {"lat": 32.8373, "lon": -97.0827, "alt_m": 180.0,
-       "az_deg": None, "hfov": 60.0, "vfov": 35.0}   # az auto-locked to target
+CAM = dict(CAM)                        # az auto-locks per run
 W, H = 1280, 720
 MODEL = sorted((Path.home() / "Work/poc-ai-stack/runs").glob("**/best.pt"))[0]
 

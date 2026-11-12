@@ -3,6 +3,11 @@
 A camera, a detector, and the public ADS-B network — answering *"what plane
 is that?"* in real time.
 
+Repo: https://github.com/devinslick/opensky — named for the OpenSky Network,
+whose public feed makes projects like this possible. This project is
+independent and unaffiliated with The OpenSky Network; ADS-B data credited
+to OpenSky and its contributors.
+
 Point a camera at the sky. YOLO detects aircraft, a tracker assigns stable
 track IDs, and each track is correlated against live public ADS-B
 transponder data (OpenSky / airplanes.live / adsb.lol) to overlay the
@@ -66,7 +71,10 @@ polls (straight-line dead reckoning diverges); multiple aircraft within
 ## Run
 
     # deps: torch+cu, ultralytics, opencv, pyzmq (see requirements.txt)
+    cp config.example.json config.json   # then set YOUR camera lat/lon/alt
     python -m overhead.pipeline --seconds 60
+
+(config.json is gitignored — your location stays yours.)
 
 The run picks the best live target (close, approach-speed, high in the
 sky), auto-locks camera azimuth, and validates against it. Outputs land

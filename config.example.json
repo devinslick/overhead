@@ -1,0 +1,10 @@
+{
+  "camera": {
+    "lat": 32.84,
+    "lon": -97.09,
+    "alt_m": 180.0,
+    "hfov": 60.0,
+    "vfov": 35.0,
+    "_comment": "placeholder DFW-area point — replace with YOUR camera location. This file is the template; copy to config.json (gitignored) and edit."
+  }
+}
