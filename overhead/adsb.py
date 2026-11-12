@@ -142,3 +142,51 @@ class AdsbPoller:
 
     def stop(self):
         self._stop = True
+
+
+def record(path, minutes=3.0, radius_nm=25.0, cadence_s=5.0, lat=None, lon=None):
+    """Co-record raw snapshots to a JSONL file for offline replay.
+
+    Run this while a camera records real footage: each line is
+    {t, source, n, aircraft:[...]} with wall-clock t (epoch s). Paired with
+    the video file's start time this lets the pipeline replay the exact
+    feed state at any frame — ADS-B sources are otherwise live-only.
+    """
+    import time as _t
+    if lat is None or lon is None:
+        from .config import CAM
+        lat, lon = CAM["lat"], CAM["lon"]
+    t_end = _t.time() + minutes * 60.0
+    lines = 0
+    print(f"[adsb] recording raw snapshots -> {path} "
+          f"({minutes:g} min, r={radius_nm:g} nm, cadence {cadence_s:g}s) "
+          f"— Ctrl-C to stop early")
+    with open(path, "a") as f:
+        while _t.time() < t_end:
+            t0 = _t.time()
+            src, acs = fetch_point(lat, lon, radius_nm)
+            f.write(json.dumps({
+                "t": t0, "source": src, "n": len(acs), "aircraft": acs,
+            }) + "\n")
+            f.flush()
+            lines += 1
+            print(f"[adsb] +{t_end - _t.time():5.0f}s left  {src or 'FAIL':>13}"
+                  f"  n={len(acs)}")
+            _t.sleep(max(cadence_s - (_t.time() - t0), 0.5))
+    print(f"[adsb] wrote {lines} snapshots to {path}")
+
+
+if __name__ == "__main__":
+    import argparse
+    ap = argparse.ArgumentParser(
+        description="overhead ADS-B tools (live poller lives in pipeline)")
+    ap.add_argument("--record", metavar="PATH",
+                    help="co-record raw snapshots to JSONL (for real-footage replay)")
+    ap.add_argument("--minutes", type=float, default=3.0)
+    ap.add_argument("--radius-nm", type=float, default=25.0)
+    ap.add_argument("--cadence-s", type=float, default=5.0)
+    a = ap.parse_args()
+    if a.record:
+        record(a.record, a.minutes, a.radius_nm, a.cadence_s)
+    else:
+        ap.print_help()
