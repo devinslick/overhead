@@ -1,22 +1,51 @@
 # overhead
 
+<p align="center">
+  <img src="docs/frame_0090.png" width="640" alt="overhead overlay: SWA1665, 3406 ft, 8.4 km — callsign recovered from live ADS-B">
+</p>
+<p align="center"><em>Synthetic-replay validation frame. The pipeline sees only pixels — the callsign,<br>altitude, and range in green are recovered independently from the live ADS-B feed.</em></p>
+
 A camera, a detector, and the public ADS-B network — answering *"what plane
 is that?"* in real time.
 
-Repo: https://github.com/devinslick/opensky — named for the OpenSky Network,
-whose public feed makes projects like this possible. This project is
-independent and unaffiliated with The OpenSky Network; ADS-B data credited
-to OpenSky and its contributors.
-
-Point a camera at the sky. YOLO detects aircraft, a tracker assigns stable
-track IDs, and each track is correlated against live public ADS-B
-transponder data (OpenSky / airplanes.live / adsb.lol) to overlay the
-callsign, altitude, speed, and range of the flight you're looking at.
-Every match is published as a ZeroMQ event and appended to a flight log.
+- **Detect** — YOLOv8 finds aircraft in the frame at ~10 ms/frame (RTX 2080)
+- **Track** — IoU tracker with constant-velocity coasting over detection dropouts
+- **Identify** — each track's geometry is correlated against live public ADS-B
+  (OpenSky / airplanes.live / adsb.lol); the winner gets its callsign,
+  altitude, and range overlaid
+- **Emit** — every confirmed match goes out as a ZeroMQ event and a flight-log line
 
 Built and validated under the DFW arrival corridor — one of the densest
-patches of civilian sky anywhere, with 100+ aircraft transmitting within
-25 nm at any moment.
+patches of civilian sky anywhere: 100+ aircraft transmitting within 25 nm
+at any moment.
+
+## Demo
+
+**[▶ docs/demo.mp4](docs/demo.mp4)** — 103 s, synthetic-replay mode: a sprite
+flies a **real live aircraft's** projected path while the pipeline
+independently detects, tracks, and identifies it. Ground truth comes from the
+live feed, but the pipeline never sees it — if the overlay recovers the right
+callsign, the whole loop is proven.
+
+| Run | Truth | Detection | Correct callsign | First lock | Angular err |
+|---|---|---|---|---|---|
+| 2026-11-11 | JSX210 | 99.1% | 3882/3882 (100%) | 1.8 s | 0.95° |
+| 2026-11-11 | SWA1665 | 94.2% | 2919/2919 (100%) | 1.8 s | 1.06° |
+
+Full artifacts: [docs/summary.json](docs/summary.json),
+[docs/flight_log.jsonl](docs/flight_log.jsonl),
+[docs/frame_0900.png](docs/frame_0900.png).
+
+Earlier runs (before correlation tuning) showed the real problem in this
+sky: label flip-flops between aircraft 2–3° apart in bearing. Fixes that got
+to 100%: tighter angular gate (4°), elevation weighted equally with bearing,
+6-vote confirmation, sticky incumbency (a confirmed match must be beaten by
+2° to change hands), and fresh-measurement gating (coasted ghost tracks may
+not claim callsigns).
+
+**Honest open problems:** aircraft that turn hard between ADS-B polls
+(straight-line dead reckoning diverges); multiple aircraft within ~1–2° of
+bearing; apparent-size-vs-range gating is unimplemented.
 
 ## How it works
 
@@ -29,44 +58,29 @@ patches of civilian sky anywhere, with 100+ aircraft transmitting within
         -> overlay (callsign / altitude / range) + ZMQ events + flight log
 
 Geodesy: haversine + great-circle bearing + elevation from camera
-(lat/lon/alt). Dead-reckoning advances aircraft between polls along
-ground track at ground speed.
+(lat/lon/alt). Dead reckoning advances aircraft between polls along ground
+track at ground speed.
 
-## Validation (synthetic-replay mode)
+## Volume prediction (v0 — funnel physics)
 
-The demo source flies a sprite along a **real live aircraft's** projected
-path — ground truth comes from the live feed, but the pipeline never sees
-it. It must independently detect, track, and correlate. If the overlay
-recovers the correct callsign, the whole loop is proven.
+`python -m overhead.volume --nowcast` predicts overflights for the next hour
+from live kinematics: each aircraft's position + velocity vector is
+dead-reckoned straight-line; time and distance of closest approach to the
+camera yields an ETA table. Weather context comes from Open-Meteo (keyless)
+and the DFW METAR (wind → north/south flow annotation, which shifts which
+corridors cross a given neighborhood).
 
-Results (60 s runs, live DFW traffic, ~100-117 aircraft in range):
+Live sample (2026-11-11 22:50 UTC, 105 aircraft in range): 5 predicted
+overflights within 15 min, 7 within 30, 9 within 60 — callsigns, ETAs, miss
+distances.
 
-| Run | Truth | Detection | Correct callsign | First lock | Angular err |
-|---|---|---|---|---|---|
-| 2026-11-11 | JSX210 | 99.1% | 3882/3882 (100%) | 1.8 s | 0.95° |
-| 2026-11-11 | SWA1665 | 94.2% | 2919/2919 (100%) | 1.8 s | 1.06° |
-
-Earlier runs (before correlation tuning) showed the real problem: label
-flip-flops between aircraft 2-3° apart in bearing — in this sky that's
-common. Fixes that got to 100%: tighter angular gate (4°), elevation
-weighted equally with bearing, 6-vote confirmation, sticky incumbency
-(a confirmed match must be beaten by 2° to change hands), and
-fresh-measurement gating (coasted ghost tracks may not claim callsigns).
-
-Honest open problems (see roadmap): aircraft that turn hard between ADS-B
-polls (straight-line dead reckoning diverges); multiple aircraft within
-~1-2° of bearing; apparent-size-vs-range gating is unimplemented.
-
-## Repo layout
-
-    overhead/geo.py         haversine, bearing, elevation, pixel<->angle
-    overhead/adsb.py        live ADS-B poller (3 public sources, fallback)
-    overhead/tracker.py     IoU tracker w/ velocity coasting
-    overhead/correlator.py  angular matching, votes, stickiness
-    overhead/sim.py         synthetic-replay validation source
-    overhead/pipeline.py    end-to-end demo (this is what you run)
-    tests/                  geodesy + tracker unit tests
-    out/                    demo.mp4, overlay frames, flight_log.jsonl
+Closed-loop verification (7.5 min later): 0/2 due predictions overhead —
+one left the feed (coverage gap), one turned to land (terminal-area
+maneuvering defeats straight-line kinematics). Known v0 limits, documented
+with the fix ladder: ETA-windowed verification from the continuous logger →
+turn detection (track-rate gate) near the airport → a learned model once
+weeks of `--log` history exist (the log schema already captures the
+features).
 
 ## Run
 
@@ -74,58 +88,52 @@ polls (straight-line dead reckoning diverges); multiple aircraft within
     cp config.example.json config.json   # then set YOUR camera lat/lon/alt
     python -m overhead.pipeline --seconds 60
 
-(config.json is gitignored — your location stays yours.)
+The run picks the best live target (close, approach speed, high in the
+sky), auto-locks camera azimuth, and validates against it. Output lands in
+`out/`: an overlay video, sample frames, a JSONL flight log, and
+`summary.json` (validated true/false + stats). `config.json` is gitignored —
+your location stays yours.
 
-The run picks the best live target (close, approach-speed, high in the
-sky), auto-locks camera azimuth, and validates against it. Outputs land
-in out/: an overlay video, sample frames, a JSONL flight log, and
-summary.json (validated: true/false + stats).
+To co-record the raw ADS-B feed alongside a camera capture (enables
+real-footage offline replay):
 
-## Volume prediction (v0 — funnel physics)
+    python -m overhead.adsb --record adsb_log.jsonl --minutes 3
 
-`python -m overhead.volume --nowcast` predicts overflights for the next
-hour from live kinematics: each aircraft's position + velocity vector is
-dead-reckoned straight-line; time/distance of closest approach to the
-camera yields an ETA table. Weather context comes from Open-Meteo (keyless)
-and the DFW METAR (wind -> crude north/south flow annotation, which shifts
-which corridors cross a given neighborhood).
+## Repo layout
 
-Live sample (2026-11-11 22:50 UTC, 105 aircraft in range): 5 predicted
-overflights within 15 min, 7 within 30, 9 within 60 — callsigns, ETAs,
-miss distances.
+    overhead/geo.py         haversine, bearing, elevation, pixel<->angle
+    overhead/adsb.py        live ADS-B poller (3 public sources, fallback) + --record
+    overhead/tracker.py     IoU tracker w/ velocity coasting
+    overhead/correlator.py  angular matching, votes, stickiness
+    overhead/sim.py         synthetic-replay validation source
+    overhead/volume.py      overflight nowcast (funnel physics + weather)
+    overhead/pipeline.py    end-to-end demo (this is what you run)
+    tests/                  geodesy + tracker unit tests
+    docs/                   demo video, overlay frames, logs from validation runs
 
-Closed-loop verification (7.5 min later): 0/2 due predictions overhead at
-sample time — one left the feed (coverage gap), one turned to land
-(terminal-area maneuvering defeats straight-line kinematics), and the
-verifier sampled after ETA rather than at it. Honest v0 limits, known and
-documented:
+## Roadmap
 
-- terminal-area turns break straight-line dead reckoning (biggest error source)
-- single-sample verification misses flyovers between samples
-- coverage gaps make "left feed" ambiguous
-
-Fix ladder (in order): ETA-windowed verification from the continuous
-logger; turn detection (track-rate gate) to mark predictions low-confidence
-near the airport; then, once weeks of `--log` history exist, a learned
-model on [hour, day-of-week, weather, live funnel state] — the log schema
-already captures all of it.
-
-## Real deployment
-
-Swap the synthetic source for an RTSP camera, then calibrate once:
-camera lat/lon/alt (GPS of the mount), azimuth (compass), and horizontal/
-vertical FOV (lens spec or a two-reference-point calibration). Everything
-downstream is unchanged. TODO: rtsp source module, camera calibration
-helper, always-on service + daily flight-log summaries.
+- [x] v0.1 — end-to-end validation vs live DFW traffic (synthetic replay)
+- [x] Volume nowcast + weather context
+- [ ] Real-footage demo — video-file source + ADS-B co-recording + offline replay
+- [ ] RTSP camera source (same VideoCapture path as the video-file source)
+- [ ] One-command calibration — time/azimuth offset scan scored by the correlator
+- [ ] Always-on service + daily flight-log summaries
+- [ ] ETA-windowed closed-loop verification of volume predictions
+- [ ] Learned volume model (hour, day-of-week, weather, live funnel state)
 
 ## Data & legality
 
-ADS-B is public by design (that's the point of the system). No account,
+ADS-B is public by design — that's the point of the system. No account,
 key, or special access required for the sources used. Detector weights
-fine-tuned on coco128 (public COCO subset). Nothing here touches
-restricted data.
+fine-tuned on coco128 (public COCO subset). Nothing here touches restricted
+data.
 
-## License / status
+## Credits & status
 
-Personal project by Devin Slick. v0.1 validated end-to-end in
-synthetic-replay mode on 2026-11-11; camera-mode bring-up next.
+ADS-B data: The OpenSky Network, airplanes.live, and adsb.lol — and the
+crowd of receivers feeding them. This project is independent and
+unaffiliated with any of them.
+
+Personal project by Devin Slick — v0.1 validated 2026-11-11, real-footage
+demo next. <https://github.com/devinslick/overhead>
